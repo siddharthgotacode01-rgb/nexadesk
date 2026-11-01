@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+
+# React
+node_modules/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Django
+Backend/venv/
+Backend/db.sqlite3
+Backend/media/
+
+# Environment variables
+.env
+.env.*
