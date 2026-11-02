@@ -1,145 +1,193 @@
 
 import { useState, useEffect } from 'react'
 
+const CUSTOMERS_API = 'http://127.0.0.1:8000/api/customers/'
+const PRODUCTS_API = 'http://127.0.0.1:8000/api/products/'
+const ORDERS_API = 'http://127.0.0.1:8000/api/orders/'
+
 function Orders() {
-  const [customers] = useState(() => {
-    const saved = localStorage.getItem('nexadesk-customers')
-    return saved ? JSON.parse(saved) : []
-  })
-
-  const [products, setProducts] = useState(() => {
-    const saved = localStorage.getItem('nexadesk-products')
-    return saved ? JSON.parse(saved) : []
-  })
-
-  const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('nexadesk-orders')
-    return saved ? JSON.parse(saved) : []
-  })
+  const [customers, setCustomers] = useState([])
+  const [products, setProducts] = useState([])
+  const [orders, setOrders] = useState([])
 
   const [showForm, setShowForm] = useState(false)
   const [customerId, setCustomerId] = useState('')
   const [productId, setProductId] = useState('')
   const [quantity, setQuantity] = useState(1)
 
-  useEffect(() => {
-    localStorage.setItem('nexadesk-orders', JSON.stringify(orders))
-  }, [orders])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Fetch customers, products and orders
+  async function fetchData() {
+    try {
+      setLoading(true)
+      setError('')
+
+      const [customerResponse, productResponse, orderResponse] =
+        await Promise.all([
+          fetch(CUSTOMERS_API),
+          fetch(PRODUCTS_API),
+          fetch(ORDERS_API)
+        ])
+
+      if (
+        !customerResponse.ok ||
+        !productResponse.ok ||
+        !orderResponse.ok
+      ) {
+        throw new Error('Could not load order data.')
+      }
+
+      const [customerData, productData, orderData] =
+        await Promise.all([
+          customerResponse.json(),
+          productResponse.json(),
+          orderResponse.json()
+        ])
+
+      setCustomers(customerData)
+      setProducts(productData)
+      setOrders(orderData)
+
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    localStorage.setItem('nexadesk-products', JSON.stringify(products))
-  }, [products])
+    fetchData()
+  }, [])
 
   const selectedProduct = products.find(
-    (product) => String(product.id) === productId
+    product => String(product.id) === productId
   )
 
   const total = selectedProduct
     ? Number(selectedProduct.price) * Number(quantity)
     : 0
 
-  function createOrder(event) {
+  // Create order in Django
+  async function createOrder(event) {
     event.preventDefault()
 
-    const customer = customers.find(
-      (item) => String(item.id) === customerId
-    )
-
-    const product = products.find(
-      (item) => String(item.id) === productId
-    )
-
-    if (!customer || !product) {
-      alert('Please select a customer and product.')
+    if (!customerId || !productId) {
+      setError('Please select a customer and product.')
       return
     }
 
-    if (Number(quantity) < 1 || !Number.isInteger(Number(quantity))) {
-      alert('Please enter a valid quantity.')
+    if (!Number.isInteger(Number(quantity)) || Number(quantity) < 1) {
+      setError('Please enter a valid quantity.')
       return
     }
 
-    if (Number(product.stock) < Number(quantity)) {
-      alert('Not enough stock available.')
-      return
+    try {
+      setSaving(true)
+      setError('')
+
+      const response = await fetch(ORDERS_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          customer: Number(customerId),
+          product: Number(productId),
+          quantity: Number(quantity)
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          Object.values(data).flat().join(' ') ||
+          'Could not create order.'
+        )
+      }
+
+      setCustomerId('')
+      setProductId('')
+      setQuantity(1)
+      setShowForm(false)
+
+      await fetchData()
+
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSaving(false)
     }
-
-    const newOrder = {
-      id: Date.now(),
-      customerId: customer.id,
-      customerName: customer.name,
-      productId: product.id,
-      productName: product.name,
-      quantity: Number(quantity),
-      total: total,
-      status: 'Pending',
-      date: new Date().toLocaleDateString('en-IN')
-    }
-
-    setOrders((previous) => [...previous, newOrder])
-
-    setProducts((previous) =>
-      previous.map((item) =>
-        item.id === product.id
-          ? {
-              ...item,
-              stock: Number(item.stock) - Number(quantity)
-            }
-          : item
-      )
-    )
-
-    setCustomerId('')
-    setProductId('')
-    setQuantity(1)
-    setShowForm(false)
   }
 
-  function updateStatus(orderId, newStatus) {
-    setOrders((previous) =>
-      previous.map((order) =>
-        order.id === orderId
-          ? { ...order, status: newStatus }
-          : order
-      )
-    )
+  // Update order status
+  async function updateStatus(orderId, newStatus) {
+    try {
+      setError('')
+
+      const response = await fetch(`${ORDERS_API}${orderId}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: newStatus
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Could not update order status.')
+      }
+
+      await fetchData()
+
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
-  function deleteOrder(orderId) {
-    const order = orders.find((item) => item.id === orderId)
-
-    if (!order) return
-
-    const confirmDelete = window.confirm(
+  // Delete order; Django restores stock
+  async function deleteOrder(orderId) {
+    const confirmed = window.confirm(
       'Delete this order? The stock will be restored.'
     )
 
-    if (!confirmDelete) return
+    if (!confirmed) return
 
-    setOrders((previous) =>
-      previous.filter((item) => item.id !== orderId)
-    )
+    try {
+      setError('')
 
-    setProducts((previous) =>
-      previous.map((product) =>
-        product.id === order.productId
-          ? {
-              ...product,
-              stock: Number(product.stock) + order.quantity
-            }
-          : product
-      )
-    )
+      const response = await fetch(`${ORDERS_API}${orderId}/`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('Could not delete order.')
+      }
+
+      await fetchData()
+
+    } catch (err) {
+      setError(err.message)
+    }
   }
 
   const totalRevenue = orders
-    .filter((order) => order.status === 'Completed')
+    .filter(order => order.status === 'Completed')
     .reduce((sum, order) => sum + Number(order.total), 0)
+
+  const pendingOrders = orders.filter(
+    order => order.status === 'Pending'
+  ).length
 
   return (
     <section className="orders-page">
 
       <div className="orders-stats">
+
         <div className="panel">
           <p>Total Orders</p>
           <h2>{orders.length}</h2>
@@ -147,15 +195,14 @@ function Orders() {
 
         <div className="panel">
           <p>Pending Orders</p>
-          <h2>
-            {orders.filter((order) => order.status === 'Pending').length}
-          </h2>
+          <h2>{pendingOrders}</h2>
         </div>
 
         <div className="panel">
           <p>Completed Revenue</p>
           <h2>₹{totalRevenue.toLocaleString('en-IN')}</h2>
         </div>
+
       </div>
 
       <div className="panel orders-panel">
@@ -168,25 +215,33 @@ function Orders() {
 
           <button
             className="add-customer-btn"
-            onClick={() => setShowForm(!showForm)}
+            onClick={() => {
+              setShowForm(!showForm)
+              setError('')
+            }}
           >
             {showForm ? 'Cancel' : '+ Create Order'}
           </button>
         </div>
+
+        {error && (
+          <p className="error-message">{error}</p>
+        )}
 
         {showForm && (
           <form className="order-form" onSubmit={createOrder}>
 
             <label>
               Select Customer
+
               <select
                 value={customerId}
-                onChange={(event) => setCustomerId(event.target.value)}
+                onChange={event => setCustomerId(event.target.value)}
                 required
               >
                 <option value="">Choose a customer</option>
 
-                {customers.map((customer) => (
+                {customers.map(customer => (
                   <option key={customer.id} value={customer.id}>
                     {customer.name}
                   </option>
@@ -196,14 +251,15 @@ function Orders() {
 
             <label>
               Select Product
+
               <select
                 value={productId}
-                onChange={(event) => setProductId(event.target.value)}
+                onChange={event => setProductId(event.target.value)}
                 required
               >
                 <option value="">Choose a product</option>
 
-                {products.map((product) => (
+                {products.map(product => (
                   <option
                     key={product.id}
                     value={product.id}
@@ -217,12 +273,14 @@ function Orders() {
 
             <label>
               Quantity
+
               <input
                 type="number"
                 min="1"
                 step="1"
+                max={selectedProduct?.stock || undefined}
                 value={quantity}
-                onChange={(event) => setQuantity(event.target.value)}
+                onChange={event => setQuantity(event.target.value)}
                 required
               />
             </label>
@@ -232,64 +290,80 @@ function Orders() {
               <h2>₹{total.toLocaleString('en-IN')}</h2>
             </div>
 
-            <button type="submit" className="add-customer-btn">
-              Place Order
+            <button
+              type="submit"
+              className="add-customer-btn"
+              disabled={saving}
+            >
+              {saving ? 'Creating Order...' : 'Place Order'}
             </button>
 
           </form>
         )}
 
-        {customers.length === 0 && (
-          <p>Add customers before creating an order.</p>
-        )}
-
-        {products.length === 0 && (
-          <p>Add products before creating an order.</p>
-        )}
-
-        {orders.length === 0 ? (
-          <p className="empty-orders">No orders yet. Create your first order.</p>
+        {loading ? (
+          <p>Loading orders...</p>
         ) : (
-          <div className="orders-list">
+          <>
+            {customers.length === 0 && (
+              <p>Add customers before creating an order.</p>
+            )}
 
-            {orders.map((order) => (
-              <div className="order-item" key={order.id}>
+            {products.length === 0 && (
+              <p>Add products before creating an order.</p>
+            )}
 
-                <div>
-                  <h3>Order #{String(order.id).slice(-6)}</h3>
-                  <p>{order.customerName}</p>
-                  <p>{order.productName} × {order.quantity}</p>
-                  <span>{order.date}</span>
-                </div>
+            {orders.length === 0 ? (
+              <p className="empty-orders">
+                No orders yet. Create your first order.
+              </p>
+            ) : (
+              <div className="orders-list">
 
-                <div className="order-price">
-                  <strong>
-                    ₹{Number(order.total).toLocaleString('en-IN')}
-                  </strong>
+                {orders.map(order => (
+                  <div className="order-item" key={order.id}>
 
-                  <select
-                    value={order.status}
-                    onChange={(event) =>
-                      updateStatus(order.id, event.target.value)
-                    }
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="Processing">Processing</option>
-                    <option value="Completed">Completed</option>
-                  </select>
+                    <div>
+                      <h3>Order #{String(order.id).slice(-6)}</h3>
+                      <p>{order.customer_name}</p>
+                      <p>{order.product_name} × {order.quantity}</p>
+                      <span>
+                        {new Date(order.created_at).toLocaleDateString('en-IN')}
+                      </span>
+                    </div>
 
-                  <button
-                    className="delete-btn"
-                    onClick={() => deleteOrder(order.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
+                    <div className="order-price">
+
+                      <strong>
+                        ₹{Number(order.total).toLocaleString('en-IN')}
+                      </strong>
+
+                      <select
+                        value={order.status}
+                        onChange={event =>
+                          updateStatus(order.id, event.target.value)
+                        }
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+
+                      <button
+                        className="delete-btn"
+                        onClick={() => deleteOrder(order.id)}
+                      >
+                        Delete
+                      </button>
+
+                    </div>
+
+                  </div>
+                ))}
 
               </div>
-            ))}
-
-          </div>
+            )}
+          </>
         )}
 
       </div>

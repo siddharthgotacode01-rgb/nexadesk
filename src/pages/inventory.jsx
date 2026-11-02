@@ -1,34 +1,86 @@
 
 import { useState, useEffect } from 'react'
 
+const API_URL = 'http://127.0.0.1:8000/api/products/'
+
 function Inventory() {
-  const [products, setProducts] = useState(() => {
-    const savedProducts = localStorage.getItem('nexadesk-products')
-    return savedProducts ? JSON.parse(savedProducts) : []
-  })
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [updatingId, setUpdatingId] = useState(null)
+
+  // GET: Fetch products from Django
+  async function fetchProducts() {
+    try {
+      setLoading(true)
+      setError('')
+
+      const response = await fetch(API_URL)
+
+      if (!response.ok) {
+        throw new Error('Could not fetch inventory.')
+      }
+
+      const data = await response.json()
+      setProducts(data)
+
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    localStorage.setItem(
-      'nexadesk-products',
-      JSON.stringify(products)
-    )
-  }, [products])
+    fetchProducts()
+  }, [])
 
-  const updateStock = (id, change) => {
-    setProducts((currentProducts) =>
-      currentProducts.map((product) =>
-        product.id === id
-          ? {
-              ...product,
-              stock: Math.max(0, Number(product.stock) + change)
-            }
-          : product
+  // PATCH: Update stock in Django database
+  async function updateStock(id, change) {
+    const product = products.find(item => item.id === id)
+
+    if (!product || updatingId !== null) return
+
+    const currentStock = Number(product.stock)
+    const newStock = Math.max(0, currentStock + change)
+
+    if (newStock === currentStock) return
+
+    try {
+      setUpdatingId(id)
+      setError('')
+
+      const response = await fetch(`${API_URL}${id}/`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          stock: newStock
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Could not update product stock.')
+      }
+
+      const updatedProduct = await response.json()
+
+      setProducts(previous =>
+        previous.map(item =>
+          item.id === id ? updatedProduct : item
+        )
       )
-    )
+
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setUpdatingId(null)
+    }
   }
 
   const lowStockCount = products.filter(
-    (product) => Number(product.stock) <= 5
+    product => Number(product.stock) <= 5
   ).length
 
   const totalStock = products.reduce(
@@ -40,6 +92,7 @@ function Inventory() {
     <section className="inventory-page">
 
       <div className="inventory-stats">
+
         <div className="panel">
           <p>Total Products</p>
           <h2>{products.length}</h2>
@@ -54,9 +107,11 @@ function Inventory() {
           <p>Low Stock Products</p>
           <h2>{lowStockCount}</h2>
         </div>
+
       </div>
 
       <div className="panel inventory-panel">
+
         <div className="inventory-heading">
           <div>
             <h2>Inventory Management</h2>
@@ -64,19 +119,32 @@ function Inventory() {
           </div>
         </div>
 
-        {products.length === 0 ? (
+        {error && (
+          <p className="error-message">{error}</p>
+        )}
+
+        {loading ? (
+          <p>Loading inventory...</p>
+        ) : products.length === 0 ? (
           <p>No products found. Add products first.</p>
         ) : (
+
           <div className="inventory-list">
-            {products.map((product) => (
+
+            {products.map(product => (
+
               <div className="inventory-item" key={product.id}>
 
                 <div className="inventory-product">
+
                   {product.image ? (
-                    <img src={product.image} alt={product.name} />
+                    <img
+                      src={product.image}
+                      alt={product.name}
+                    />
                   ) : (
                     <div className="inventory-placeholder">
-                      {product.name.charAt(0)}
+                      {product.name.charAt(0).toUpperCase()}
                     </div>
                   )}
 
@@ -84,10 +152,13 @@ function Inventory() {
                     <h3>{product.name}</h3>
                     <p>{product.category}</p>
                   </div>
+
                 </div>
 
                 <div className="inventory-stock">
+
                   <span>Current Stock</span>
+
                   <strong>{product.stock} units</strong>
 
                   <span className={
@@ -99,27 +170,38 @@ function Inventory() {
                       ? 'Low Stock'
                       : 'In Stock'}
                   </span>
+
                 </div>
 
                 <div className="stock-controls">
+
                   <button
                     onClick={() => updateStock(product.id, -1)}
-                    disabled={Number(product.stock) <= 0}
+                    disabled={
+                      Number(product.stock) <= 0 ||
+                      updatingId !== null
+                    }
                   >
                     −
                   </button>
 
                   <button
                     onClick={() => updateStock(product.id, 1)}
+                    disabled={updatingId !== null}
                   >
                     +
                   </button>
+
                 </div>
 
               </div>
+
             ))}
+
           </div>
+
         )}
+
       </div>
 
     </section>

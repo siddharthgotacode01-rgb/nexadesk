@@ -1,5 +1,5 @@
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 import Customers from './pages/customers'
 import Products from './pages/products'
@@ -9,42 +9,92 @@ import Analytics from './pages/analytics'
 
 import './App.css'
 
-// Read saved data safely from localStorage
-function getSavedData(key) {
-    try {
-        const saved = localStorage.getItem(key)
-        return saved ? JSON.parse(saved) : []
-    } catch {
-        return []
-    }
-}
+const CUSTOMERS_API = 'http://127.0.0.1:8000/api/customers/'
+const PRODUCTS_API = 'http://127.0.0.1:8000/api/products/'
+const ORDERS_API = 'http://127.0.0.1:8000/api/orders/'
 
-// Convert an order date into a comparable date key
 function getOrderDateKey(dateString) {
     if (!dateString) return ''
 
-    const parts = dateString.split('/')
+    const date = new Date(dateString)
 
-    if (parts.length === 3) {
-        const [day, month, year] = parts
-        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
-    }
+    if (Number.isNaN(date.getTime())) return ''
 
-    return dateString
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+
+    return `${year}-${month}-${day}`
 }
 
 function App() {
     const [activePage, setActivePage] = useState('Dashboard')
 
-    // Get the latest saved information
-    const customers = getSavedData('nexadesk-customers')
-    const products = getSavedData('nexadesk-products')
-    const orders = getSavedData('nexadesk-orders')
+    // Dashboard data
+    const [customers, setCustomers] = useState([])
+    const [products, setProducts] = useState([])
+    const [orders, setOrders] = useState([])
 
-    // Calculate dashboard statistics
+    // Loading and error states
+    const [dashboardLoading, setDashboardLoading] = useState(true)
+    const [dashboardError, setDashboardError] = useState('')
+
+    // Fetch dashboard data from Django
+    useEffect(() => {
+        async function fetchDashboardData() {
+            try {
+                setDashboardLoading(true)
+                setDashboardError('')
+
+                const [
+                    customerResponse,
+                    productResponse,
+                    orderResponse
+                ] = await Promise.all([
+                    fetch(CUSTOMERS_API),
+                    fetch(PRODUCTS_API),
+                    fetch(ORDERS_API)
+                ])
+
+                if (
+                    !customerResponse.ok ||
+                    !productResponse.ok ||
+                    !orderResponse.ok
+                ) {
+                    throw new Error('Could not load dashboard data.')
+                }
+
+                const [
+                    customerData,
+                    productData,
+                    orderData
+                ] = await Promise.all([
+                    customerResponse.json(),
+                    productResponse.json(),
+                    orderResponse.json()
+                ])
+
+                setCustomers(customerData)
+                setProducts(productData)
+                setOrders(orderData)
+
+            } catch (error) {
+                setDashboardError(error.message)
+            } finally {
+                setDashboardLoading(false)
+            }
+        }
+
+        fetchDashboardData()
+    }, [])
+
+    // Dashboard statistics
     const totalRevenue = orders
         .filter(order => order.status === 'Completed')
-        .reduce((sum, order) => sum + Number(order.total || 0), 0)
+        .reduce(
+            (sum, order) => sum + Number(order.total || 0),
+            0
+        )
 
     const totalOrders = orders.length
     const totalCustomers = customers.length
@@ -62,7 +112,7 @@ function App() {
         product => Number(product.stock) <= 5
     ).length
 
-    // Get sales data for the last 7 days
+    // Revenue from the last seven days
     const lastSevenDays = Array.from({ length: 7 }, (_, index) => {
         const date = new Date()
 
@@ -76,10 +126,9 @@ function App() {
         ].join('-')
 
         const revenue = orders
-            .filter(
-                order =>
-                    order.status === 'Completed' &&
-                    getOrderDateKey(order.date) === dateKey
+            .filter(order =>
+                order.status === 'Completed' &&
+                getOrderDateKey(order.created_at) === dateKey
             )
             .reduce(
                 (sum, order) => sum + Number(order.total || 0),
@@ -99,13 +148,18 @@ function App() {
         1
     )
 
+    // Latest five orders
     const recentOrders = [...orders]
-        .sort((a, b) => Number(b.id) - Number(a.id))
+        .sort((a, b) =>
+            new Date(b.created_at).getTime() -
+            new Date(a.created_at).getTime()
+        )
         .slice(0, 5)
 
     return (
         <div className="app">
 
+            {/* SIDEBAR */}
             <aside className="sidebar">
 
                 <h2 className="logo">
@@ -150,8 +204,10 @@ function App() {
 
             </aside>
 
+            {/* MAIN CONTENT */}
             <main className="main-content">
 
+                {/* TOP BAR */}
                 <header className="topbar">
 
                     <div>
@@ -195,207 +251,214 @@ function App() {
                 ) : activePage === 'Dashboard' ? (
 
                     <>
+                        {dashboardLoading ? (
 
-                        {/* STATISTICS */}
+                            <p>Loading dashboard data...</p>
 
-                        <section className="stats-grid">
+                        ) : dashboardError ? (
 
-                            <div className="stat-card">
-                                <p>Total Revenue</p>
-                                <h2>
-                                    ₹{totalRevenue.toLocaleString('en-IN')}
-                                </h2>
-                                <span>From completed orders</span>
-                            </div>
+                            <p className="error-message">
+                                {dashboardError}
+                            </p>
 
-                            <div className="stat-card">
-                                <p>Total Orders</p>
-                                <h2>{totalOrders}</h2>
-                                <span>All recorded orders</span>
-                            </div>
+                        ) : (
 
-                            <div className="stat-card">
-                                <p>Total Customers</p>
-                                <h2>{totalCustomers}</h2>
-                                <span>Registered customers</span>
-                            </div>
+                            <>
+                                {/* STATISTICS */}
+                                <section className="stats-grid">
 
-                            <div className="stat-card">
-                                <p>Products</p>
-                                <h2>{totalProducts}</h2>
-                                <span>Across all categories</span>
-                            </div>
-
-                        </section>
-
-                        {/* SALES AND QUICK SUMMARY */}
-
-                        <section className="content-grid">
-
-                            <div className="panel sales-panel">
-
-                                <div className="panel-heading">
-
-                                    <div>
-                                        <h3>Sales Overview</h3>
-                                        <p>Completed order revenue</p>
+                                    <div className="stat-card">
+                                        <p>Total Revenue</p>
+                                        <h2>
+                                            ₹{totalRevenue.toLocaleString('en-IN')}
+                                        </h2>
+                                        <span>From completed orders</span>
                                     </div>
 
-                                    <span className="period">
-                                        Last 7 days
-                                    </span>
+                                    <div className="stat-card">
+                                        <p>Total Orders</p>
+                                        <h2>{totalOrders}</h2>
+                                        <span>All recorded orders</span>
+                                    </div>
 
-                                </div>
+                                    <div className="stat-card">
+                                        <p>Total Customers</p>
+                                        <h2>{totalCustomers}</h2>
+                                        <span>Registered customers</span>
+                                    </div>
 
-                                <div className="chart">
+                                    <div className="stat-card">
+                                        <p>Products</p>
+                                        <h2>{totalProducts}</h2>
+                                        <span>Across all categories</span>
+                                    </div>
 
-                                    {lastSevenDays.map((day, index) => (
+                                </section>
 
-                                        <div
-                                            className="chart-column"
-                                            key={index}
-                                        >
+                                {/* SALES AND QUICK SUMMARY */}
+                                <section className="content-grid">
 
-                                            <div
-                                                className="chart-bar"
-                                                style={{
-                                                    height: `${
-                                                        day.revenue === 0
-                                                            ? 0
-                                                            : Math.max(
-                                                                (day.revenue / highestRevenue) * 100,
-                                                                5
-                                                            )
-                                                    }%`
-                                                }}
-                                                title={`₹${day.revenue.toLocaleString('en-IN')}`}
-                                            />
+                                    <div className="panel sales-panel">
 
-                                            <small>{day.label}</small>
+                                        <div className="panel-heading">
+
+                                            <div>
+                                                <h3>Sales Overview</h3>
+                                                <p>Completed order revenue</p>
+                                            </div>
+
+                                            <span className="period">
+                                                Last 7 days
+                                            </span>
 
                                         </div>
 
-                                    ))}
+                                        <div className="chart">
 
-                                </div>
+                                            {lastSevenDays.map((day, index) => (
+                                                <div
+                                                    className="chart-column"
+                                                    key={index}
+                                                >
 
-                                {totalOrders === 0 && (
-                                    <p className="empty-orders">
-                                        Your sales chart will appear when you complete orders.
-                                    </p>
-                                )}
+                                                    <div
+                                                        className="chart-bar"
+                                                        style={{
+                                                            height: `${
+                                                                day.revenue === 0
+                                                                    ? 0
+                                                                    : Math.max(
+                                                                        (day.revenue / highestRevenue) * 100,
+                                                                        5
+                                                                    )
+                                                            }%`
+                                                        }}
+                                                        title={`₹${day.revenue.toLocaleString('en-IN')}`}
+                                                    />
 
-                            </div>
+                                                    <small>{day.label}</small>
 
-                            <div className="panel">
+                                                </div>
+                                            ))}
 
-                                <div className="panel-heading">
+                                        </div>
 
-                                    <div>
-                                        <h3>Quick Summary</h3>
-                                        <p>Business performance</p>
-                                    </div>
-
-                                </div>
-
-                                <div className="summary-item">
-                                    <span>Completed Orders</span>
-                                    <strong>{completedOrders}</strong>
-                                </div>
-
-                                <div className="summary-item">
-                                    <span>Pending Orders</span>
-                                    <strong>{pendingOrders}</strong>
-                                </div>
-
-                                <div className="summary-item">
-                                    <span>Low Stock Items</span>
-                                    <strong>{lowStockItems}</strong>
-                                </div>
-
-                            </div>
-
-                        </section>
-
-                        {/* RECENT ORDERS */}
-
-                        <section className="panel orders-panel">
-
-                            <div className="panel-heading">
-
-                                <div>
-                                    <h3>Recent Orders</h3>
-                                    <p>Latest customer transactions</p>
-                                </div>
-
-                                <button
-                                    className="view-button"
-                                    onClick={() => setActivePage('Orders')}
-                                >
-                                    View all
-                                </button>
-
-                            </div>
-
-                            <div className="table-wrapper">
-
-                                <table>
-
-                                    <thead>
-                                        <tr>
-                                            <th>Order ID</th>
-                                            <th>Customer</th>
-                                            <th>Amount</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-
-                                    <tbody>
-
-                                        {recentOrders.map(order => (
-
-                                            <tr key={order.id}>
-
-                                                <td>
-                                                    #{String(order.id).slice(-6)}
-                                                </td>
-
-                                                <td>
-                                                    {order.customerName}
-                                                </td>
-
-                                                <td>
-                                                    ₹{Number(order.total).toLocaleString('en-IN')}
-                                                </td>
-
-                                                <td>
-                                                    <span
-                                                        className={`status ${order.status.toLowerCase()}`}
-                                                    >
-                                                        {order.status}
-                                                    </span>
-                                                </td>
-
-                                            </tr>
-
-                                        ))}
-
-                                        {recentOrders.length === 0 && (
-                                            <tr>
-                                                <td colSpan="4">
-                                                    No orders yet. Your recent orders will appear here.
-                                                </td>
-                                            </tr>
+                                        {totalOrders === 0 && (
+                                            <p className="empty-orders">
+                                                Your sales chart will appear
+                                                when you complete orders.
+                                            </p>
                                         )}
 
-                                    </tbody>
+                                    </div>
 
-                                </table>
+                                    <div className="panel">
 
-                            </div>
+                                        <div className="panel-heading">
+                                            <div>
+                                                <h3>Quick Summary</h3>
+                                                <p>Business performance</p>
+                                            </div>
+                                        </div>
 
-                        </section>
+                                        <div className="summary-item">
+                                            <span>Completed Orders</span>
+                                            <strong>{completedOrders}</strong>
+                                        </div>
 
+                                        <div className="summary-item">
+                                            <span>Pending Orders</span>
+                                            <strong>{pendingOrders}</strong>
+                                        </div>
+
+                                        <div className="summary-item">
+                                            <span>Low Stock Items</span>
+                                            <strong>{lowStockItems}</strong>
+                                        </div>
+
+                                    </div>
+
+                                </section>
+
+                                {/* RECENT ORDERS */}
+                                <section className="panel orders-panel">
+
+                                    <div className="panel-heading">
+
+                                        <div>
+                                            <h3>Recent Orders</h3>
+                                            <p>Latest customer transactions</p>
+                                        </div>
+
+                                        <button
+                                            className="view-button"
+                                            onClick={() => setActivePage('Orders')}
+                                        >
+                                            View all
+                                        </button>
+
+                                    </div>
+
+                                    <div className="table-wrapper">
+
+                                        <table>
+
+                                            <thead>
+                                                <tr>
+                                                    <th>Order ID</th>
+                                                    <th>Customer</th>
+                                                    <th>Amount</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+
+                                            <tbody>
+
+                                                {recentOrders.map(order => (
+                                                    <tr key={order.id}>
+
+                                                        <td>
+                                                            #{String(order.id).slice(-6)}
+                                                        </td>
+
+                                                        <td>
+                                                            {order.customer_name}
+                                                        </td>
+
+                                                        <td>
+                                                            ₹{Number(order.total).toLocaleString('en-IN')}
+                                                        </td>
+
+                                                        <td>
+                                                            <span
+                                                                className={`status ${order.status.toLowerCase()}`}
+                                                            >
+                                                                {order.status}
+                                                            </span>
+                                                        </td>
+
+                                                    </tr>
+                                                ))}
+
+                                                {recentOrders.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="4">
+                                                            No orders yet. Your recent
+                                                            orders will appear here.
+                                                        </td>
+                                                    </tr>
+                                                )}
+
+                                            </tbody>
+
+                                        </table>
+
+                                    </div>
+
+                                </section>
+                            </>
+
+                        )}
                     </>
 
                 ) : (

@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'customers',
     'products',
+    'orders',
 ]
 
 MIDDLEWARE = [
@@ -137,3 +138,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5174",
     "http://127.0.0.1:5174",
 ]
+
+# Media files (uploaded product images)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

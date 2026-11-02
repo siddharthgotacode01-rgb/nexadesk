@@ -24,6 +24,7 @@ dist-ssr
 *.sw?
 
 
+
 # React
 node_modules/
 dist/
@@ -41,3 +42,6 @@ Backend/media/
 # Environment variables
 .env
 .env.*
+# Unused product image copies
+/Backend/products/dp1.jpeg
+/Backend/products/react1.jpg
