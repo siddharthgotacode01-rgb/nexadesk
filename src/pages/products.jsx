@@ -1,10 +1,10 @@
+import { useEffect, useState } from 'react'
+import { apiRequest } from '../api'
 
-import { useState, useEffect } from 'react'
-
-const API_URL = 'http://127.0.0.1:8000/api/products/'
+const API_URL = '/products/products/'
 const BACKEND_URL = 'http://127.0.0.1:8000'
 
-// Convert Django image paths into complete URLs
+// Convert Django image paths into complete URLs.
 function getImageUrl(imagePath) {
     if (!imagePath) return ''
 
@@ -18,6 +18,15 @@ function getImageUrl(imagePath) {
     return `${BACKEND_URL}${imagePath.startsWith('/') ? '' : '/'}${imagePath}`
 }
 
+const EMPTY_PRODUCT = {
+    name: '',
+    sku: '',
+    category: '',
+    price: '',
+    stock: '',
+    description: '',
+}
+
 function Products() {
     const [products, setProducts] = useState([])
     const [search, setSearch] = useState('')
@@ -28,35 +37,25 @@ function Products() {
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
-    const [newProduct, setNewProduct] = useState({
-        name: '',
-        sku: '',
-        category: '',
-        price: '',
-        stock: '',
-        description: ''
-    })
-
+    const [newProduct, setNewProduct] = useState(EMPTY_PRODUCT)
     const [imageFile, setImageFile] = useState(null)
     const [imagePreview, setImagePreview] = useState('')
 
-    // GET: Fetch products from Django
+    // GET: Fetch the authenticated user's products.
     async function fetchProducts() {
         try {
             setLoading(true)
             setError('')
 
-            const response = await fetch(API_URL)
+            const data = await apiRequest(API_URL)
 
-            if (!response.ok) {
-                throw new Error('Could not fetch products.')
+            if (!Array.isArray(data)) {
+                throw new Error('The products API returned an unexpected response.')
             }
 
-            const data = await response.json()
             setProducts(data)
-
         } catch (err) {
-            setError(err.message)
+            setError(err.message || 'Could not fetch products.')
         } finally {
             setLoading(false)
         }
@@ -66,49 +65,50 @@ function Products() {
         fetchProducts()
     }, [])
 
-    // Handle text inputs
     function handleChange(event) {
         const { name, value } = event.target
 
-        setNewProduct(previous => ({
+        setNewProduct((previous) => ({
             ...previous,
-            [name]: value
+            [name]: value,
         }))
     }
 
-    // Handle image selection
+    // Validate and preview a selected image.
     function handleImageChange(event) {
-        const file = event.target.files[0]
+        const file = event.target.files?.[0]
 
         if (!file) return
 
         if (!file.type.startsWith('image/')) {
-            alert('Please select an image file.')
+            setError('Please select a valid image file.')
             event.target.value = ''
             return
         }
 
         if (file.size > 1024 * 1024) {
-            alert('Please choose an image smaller than 1 MB.')
+            setError('Please choose an image smaller than 1 MB.')
             event.target.value = ''
             return
         }
 
+        setError('')
         setImageFile(file)
+
+        // Revoke the previous temporary preview URL, if there was one.
+        if (imagePreview.startsWith('blob:')) {
+            URL.revokeObjectURL(imagePreview)
+        }
+
         setImagePreview(URL.createObjectURL(file))
     }
 
-    // Reset product form
     function resetForm() {
-        setNewProduct({
-            name: '',
-            sku: '',
-            category: '',
-            price: '',
-            stock: '',
-            description: ''
-        })
+        if (imagePreview.startsWith('blob:')) {
+            URL.revokeObjectURL(imagePreview)
+        }
 
+        setNewProduct({ ...EMPTY_PRODUCT })
         setImageFile(null)
         setImagePreview('')
         setEditingId(null)
@@ -116,8 +116,7 @@ function Products() {
         setError('')
     }
 
-    // POST: Create a product
-    // PATCH: Update an existing product
+    // POST: Create a product. PATCH: Update an existing product.
     async function saveProduct(event) {
         event.preventDefault()
 
@@ -126,9 +125,8 @@ function Products() {
             setError('')
 
             const formData = new FormData()
-
-            formData.append('name', newProduct.name)
-            formData.append('sku', newProduct.sku)
+            formData.append('name', newProduct.name.trim())
+            formData.append('sku', newProduct.sku.trim())
             formData.append('category', newProduct.category)
             formData.append('price', newProduct.price)
             formData.append('stock', newProduct.stock)
@@ -138,131 +136,113 @@ function Products() {
                 formData.append('image', imageFile)
             }
 
-            const url = editingId
+            const endpoint = editingId
                 ? `${API_URL}${editingId}/`
                 : API_URL
 
-            const response = await fetch(url, {
+            await apiRequest(endpoint, {
                 method: editingId ? 'PATCH' : 'POST',
-                body: formData
+                body: formData,
             })
-
-            if (!response.ok) {
-                const errorData = await response.json()
-
-                throw new Error(
-                    Object.values(errorData).flat().join(' ') ||
-                    'Could not save product.'
-                )
-            }
 
             await fetchProducts()
             resetForm()
-
         } catch (err) {
-            setError(err.message)
+            setError(err.message || 'Could not save product.')
         } finally {
             setSaving(false)
         }
     }
 
-    // Edit product
     function editProduct(product) {
         setNewProduct({
-            name: product.name,
-            sku: product.sku,
-            category: product.category,
-            price: String(product.price),
-            stock: String(product.stock),
-            description: product.description || ''
+            name: product.name || '',
+            sku: product.sku || '',
+            category: product.category || '',
+            price: String(product.price ?? ''),
+            stock: String(product.stock ?? ''),
+            description: product.description || '',
         })
 
         setImageFile(null)
-
-        // Show the existing Django image in the edit preview
         setImagePreview(getImageUrl(product.image))
-
         setEditingId(product.id)
         setShowForm(true)
         setError('')
     }
 
-    // DELETE: Remove a product
+    // DELETE: Remove a product.
     async function deleteProduct(id) {
-        if (!window.confirm('Are you sure you want to delete this product?')) {
-            return
-        }
+        const confirmed = window.confirm(
+            'Are you sure you want to delete this product?'
+        )
+
+        if (!confirmed) return
 
         try {
             setError('')
 
-            const response = await fetch(`${API_URL}${id}/`, {
-                method: 'DELETE'
+            await apiRequest(`${API_URL}${id}/`, {
+                method: 'DELETE',
             })
 
-            if (!response.ok) {
-                throw new Error('Could not delete product.')
-            }
-
             await fetchProducts()
-
         } catch (err) {
-            setError(err.message)
+            setError(err.message || 'Could not delete product.')
         }
     }
 
-    // Search and filter products
-    const filteredProducts = products.filter(product =>
-        product.name.toLowerCase().includes(search.toLowerCase()) ||
-        product.category.toLowerCase().includes(search.toLowerCase()) ||
-        product.sku.toLowerCase().includes(search.toLowerCase())
-    )
+    const searchTerm = search.trim().toLowerCase()
+
+    const filteredProducts = products.filter((product) => {
+        const name = (product.name || '').toLowerCase()
+        const category = (product.category || '').toLowerCase()
+        const sku = (product.sku || '').toLowerCase()
+
+        return (
+            name.includes(searchTerm) ||
+            category.includes(searchTerm) ||
+            sku.includes(searchTerm)
+        )
+    })
 
     return (
         <div className="products-page">
-
             {/* PRODUCT TOOLBAR */}
-
             <div className="product-toolbar">
-
                 <input
                     type="text"
                     placeholder="Search products..."
                     value={search}
-                    onChange={event => setSearch(event.target.value)}
+                    onChange={(event) => setSearch(event.target.value)}
                 />
 
                 <button
+                    type="button"
                     className="add-customer-btn"
                     onClick={() => {
                         if (showForm) {
                             resetForm()
                         } else {
+                            setError('')
                             setShowForm(true)
                         }
                     }}
                 >
                     + Add Product
                 </button>
-
             </div>
 
             {/* ERROR MESSAGE */}
-
             {error && (
-                <p className="error-message">
+                <p className="error-message" role="alert">
                     {error}
                 </p>
             )}
 
             {/* ADD / EDIT PRODUCT FORM */}
-
             {showForm && (
-                <form
-                    className="product-form"
-                    onSubmit={saveProduct}
-                >
-
+                <form className="product-form" onSubmit={saveProduct}>
                     <h3>
                         {editingId !== null ? 'Edit Product' : 'Add New Product'}
                     </h3>
@@ -327,10 +307,8 @@ function Products() {
                     />
 
                     {/* IMAGE UPLOAD */}
-
                     <label className="image-upload">
                         Product Image
-
                         <input
                             type="file"
                             accept="image/*"
@@ -339,13 +317,12 @@ function Products() {
                     </label>
 
                     {/* IMAGE PREVIEW */}
-
                     {imagePreview && (
                         <img
                             src={imagePreview}
                             alt="Product preview"
                             className="product-preview"
-                            onError={event => {
+                            onError={(event) => {
                                 event.currentTarget.style.display = 'none'
                             }}
                         />
@@ -367,90 +344,73 @@ function Products() {
                         type="button"
                         className="delete-btn"
                         onClick={resetForm}
+                        disabled={saving}
                     >
                         Cancel
                     </button>
-
                 </form>
             )}
 
             {/* PRODUCT COUNT */}
-
             <div className="product-count">
                 <h3>All Products ({products.length})</h3>
                 <p>Manage your business product catalogue.</p>
             </div>
 
             {/* PRODUCT GRID */}
-
             {loading ? (
-
                 <p>Loading products...</p>
-
             ) : (
-
                 <div className="products-grid">
-
-                    {filteredProducts.map(product => (
-                        <div
-                            className="product-card"
-                            key={product.id}
-                        >
-
+                    {filteredProducts.map((product) => (
+                        <div className="product-card" key={product.id}>
                             {/* PRODUCT IMAGE */}
-
                             {product.image ? (
-
                                 <img
                                     src={getImageUrl(product.image)}
-                                    alt={product.name}
+                                    alt={product.name || 'Product'}
                                     className="product-image"
-                                    onError={event => {
+                                    onError={(event) => {
                                         event.currentTarget.style.display = 'none'
                                     }}
                                 />
-
                             ) : (
-
                                 <div className="product-image-placeholder">
                                     <span>
-                                        {product.name.charAt(0).toUpperCase()}
+                                        {(product.name || '?').charAt(0).toUpperCase()}
                                     </span>
                                 </div>
-
                             )}
 
                             {/* PRODUCT DETAILS */}
-
                             <div className="product-details">
-
                                 <span className="product-category">
                                     {product.category}
                                 </span>
 
                                 <h3>{product.name}</h3>
-
                                 <p>SKU: {product.sku}</p>
 
                                 <h2>
-                                    ₹{Number(product.price).toLocaleString('en-IN')}
+                                    ₹{Number(product.price || 0).toLocaleString('en-IN')}
                                 </h2>
 
-                                <p className={
-                                    Number(product.stock) <= 5
-                                        ? 'low-stock'
-                                        : 'stock'
-                                }>
+                                <p
+                                    className={
+                                        Number(product.stock) <= 5
+                                            ? 'low-stock'
+                                            : 'stock'
+                                    }
+                                >
                                     {Number(product.stock) <= 5
                                         ? `Only ${product.stock} left`
                                         : `${product.stock} in stock`}
                                 </p>
 
                                 {/* PRODUCT ACTIONS */}
-
                                 <div className="product-actions">
-
                                     <button
+                                        type="button"
                                         className="view-button"
                                         onClick={() => editProduct(product)}
                                     >
@@ -458,27 +418,22 @@ function Products() {
                                     </button>
 
                                     <button
+                                        type="button"
                                         className="delete-btn"
                                         onClick={() => deleteProduct(product.id)}
                                     >
                                         Delete
                                     </button>
-
                                 </div>
-
                             </div>
-
                         </div>
                     ))}
 
                     {filteredProducts.length === 0 && (
                         <p>No products found.</p>
                     )}
-
                 </div>
-
             )}
-
         </div>
     )
 }

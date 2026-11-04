@@ -1,7 +1,7 @@
-
 import { useState, useEffect } from 'react'
+import { apiRequest } from '../api'
 
-const API_URL = 'http://127.0.0.1:8000/api/customers/'
+const API_URL = '/customers/customers/'
 
 function Customers() {
     // Customer records from Django
@@ -12,6 +12,7 @@ function Customers() {
     const [showForm, setShowForm] = useState(false)
     const [editingId, setEditingId] = useState(null)
     const [loading, setLoading] = useState(true)
+    const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
     // Customer form data
@@ -19,27 +20,25 @@ function Customers() {
         name: '',
         email: '',
         phone: '',
-        city: ''
+        city: '',
     })
 
-    // Fetch customers from Django
+    // Fetch customers from the authenticated Django API
     async function fetchCustomers() {
         try {
             setLoading(true)
             setError('')
 
-            const response = await fetch(API_URL)
+            const data = await apiRequest(API_URL)
 
-            if (!response.ok) {
-                throw new Error('Could not fetch customers')
+            if (!Array.isArray(data)) {
+                throw new Error('The customers API returned an unexpected response.')
             }
 
-            const data = await response.json()
             setCustomers(data)
-
         } catch (error) {
             console.error('Fetch error:', error)
-            setError('Unable to load customers. Check whether Django is running.')
+            setError(error.message || 'Unable to load customers. Check whether Django is running.')
         } finally {
             setLoading(false)
         }
@@ -54,9 +53,9 @@ function Customers() {
     function handleChange(event) {
         const { name, value } = event.target
 
-        setNewCustomer(previous => ({
+        setNewCustomer((previous) => ({
             ...previous,
-            [name]: value
+            [name]: value,
         }))
     }
 
@@ -66,11 +65,12 @@ function Customers() {
             name: '',
             email: '',
             phone: '',
-            city: ''
+            city: '',
         })
 
         setEditingId(null)
         setShowForm(false)
+        setError('')
     }
 
     // Add customer to Django database
@@ -78,44 +78,36 @@ function Customers() {
         event.preventDefault()
 
         try {
+            setSaving(true)
             setError('')
 
-            const response = await fetch(API_URL, {
+            const savedCustomer = await apiRequest(API_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(newCustomer)
+                body: JSON.stringify(newCustomer),
             })
 
-            if (!response.ok) {
-                const errorData = await response.json()
-                console.error('Server validation error:', errorData)
-                throw new Error('Could not add customer')
-            }
-
-            const savedCustomer = await response.json()
-
-            setCustomers(previous => [...previous, savedCustomer])
+            setCustomers((previous) => [...previous, savedCustomer])
             resetForm()
-
         } catch (error) {
             console.error('Add customer error:', error)
-            setError('Could not save customer. Please check the form and backend.')
+            setError(error.message || 'Could not save customer. Please check the form and backend.')
+        } finally {
+            setSaving(false)
         }
     }
 
     // Load customer details into the form
     function editCustomer(customer) {
         setNewCustomer({
-            name: customer.name,
-            email: customer.email,
-            phone: customer.phone,
-            city: customer.city || ''
+            name: customer.name || '',
+            email: customer.email || '',
+            phone: customer.phone || '',
+            city: customer.city || '',
         })
 
         setEditingId(customer.id)
         setShowForm(true)
+        setError('')
     }
 
     // Update customer in Django database
@@ -123,37 +115,26 @@ function Customers() {
         event.preventDefault()
 
         try {
+            setSaving(true)
             setError('')
 
-            const response = await fetch(`${API_URL}${editingId}/`, {
+            const updatedCustomer = await apiRequest(`${API_URL}${editingId}/`, {
                 method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(newCustomer)
+                body: JSON.stringify(newCustomer),
             })
 
-            if (!response.ok) {
-                const errorData = await response.json()
-                console.error('Server validation error:', errorData)
-                throw new Error('Could not update customer')
-            }
-
-            const updatedCustomer = await response.json()
-
-            setCustomers(previous =>
-                previous.map(customer =>
-                    customer.id === editingId
-                        ? updatedCustomer
-                        : customer
+            setCustomers((previous) =>
+                previous.map((customer) =>
+                    customer.id === editingId ? updatedCustomer : customer
                 )
             )
 
             resetForm()
-
         } catch (error) {
             console.error('Update customer error:', error)
-            setError('Could not update customer. Please try again.')
+            setError(error.message || 'Could not update customer. Please try again.')
+        } finally {
+            setSaving(false)
         }
     }
 
@@ -168,84 +149,68 @@ function Customers() {
         try {
             setError('')
 
-            const response = await fetch(`${API_URL}${id}/`, {
-                method: 'DELETE'
+            await apiRequest(`${API_URL}${id}/`, {
+                method: 'DELETE',
             })
 
-            if (!response.ok) {
-                throw new Error('Could not delete customer')
-            }
-
-            setCustomers(previous =>
-                previous.filter(customer => customer.id !== id)
+            setCustomers((previous) =>
+                previous.filter((customer) => customer.id !== id)
             )
-
         } catch (error) {
             console.error('Delete customer error:', error)
-            setError('Could not delete customer. Please try again.')
+            setError(error.message || 'Could not delete customer. Please try again.')
         }
     }
 
     // Search customers
-    const filteredCustomers = customers.filter(customer =>
-        (customer.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (customer.email || '').toLowerCase().includes(search.toLowerCase())
+    const searchTerm = search.toLowerCase()
+    const filteredCustomers = customers.filter((customer) =>
+        (customer.name || '').toLowerCase().includes(searchTerm) ||
+        (customer.email || '').toLowerCase().includes(searchTerm)
     )
 
     return (
         <div className="customers-page">
-
             {/* TOOLBAR */}
-
             <div className="customer-toolbar">
-
                 <input
                     type="text"
                     placeholder="Search customers..."
                     value={search}
-                    onChange={event => setSearch(event.target.value)}
+                    onChange={(event) => setSearch(event.target.value)}
                 />
 
                 <button
+                    type="button"
                     className="add-customer-btn"
                     onClick={() => {
                         if (showForm) {
                             resetForm()
                         } else {
+                            setError('')
                             setShowForm(true)
                         }
                     }}
                 >
                     + Add Customer
                 </button>
-
             </div>
 
             {/* ERROR MESSAGE */}
-
             {error && (
-                <div className="error-message">
+                <div className="error-message" role="alert">
                     {error}
                 </div>
             )}
 
             {/* CUSTOMER FORM */}
-
             {showForm && (
-
                 <form
                     className="customer-form"
-                    onSubmit={
-                        editingId !== null
-                            ? updateCustomer
-                            : addCustomer
-                    }
+                    onSubmit={editingId !== null ? updateCustomer : addCustomer}
                 >
-
                     <h3>
-                        {editingId !== null
-                            ? 'Edit Customer'
-                            : 'Add New Customer'}
+                        {editingId !== null ? 'Edit Customer' : 'Add New Customer'}
                     </h3>
 
                     <input
@@ -284,41 +249,36 @@ function Customers() {
                     <button
                         type="submit"
                         className="add-customer-btn"
+                        disabled={saving}
                     >
-                        {editingId !== null
-                            ? 'Update Customer'
-                            : 'Save Customer'}
+                        {saving
+                            ? 'Saving...'
+                            : editingId !== null
+                                ? 'Update Customer'
+                                : 'Save Customer'}
                     </button>
 
                     <button
                         type="button"
                         className="delete-btn"
                         onClick={resetForm}
+                        disabled={saving}
                     >
                         Cancel
                     </button>
-
                 </form>
             )}
 
             {/* CUSTOMER COUNT */}
-
             <div className="customer-count">
-
                 <h3>All Customers ({customers.length})</h3>
-
                 <p>Manage your business customers.</p>
-
             </div>
 
             {/* CUSTOMER TABLE */}
-
             <div className="panel customer-table-panel">
-
                 <div className="table-wrapper">
-
                     <table>
-
                         <thead>
                             <tr>
                                 <th>Name</th>
@@ -330,29 +290,20 @@ function Customers() {
                         </thead>
 
                         <tbody>
-
                             {loading ? (
-
                                 <tr>
-                                    <td colSpan="5">
-                                        Loading customers...
-                                    </td>
+                                    <td colSpan="5">Loading customers...</td>
                                 </tr>
-
                             ) : filteredCustomers.length > 0 ? (
-
-                                filteredCustomers.map(customer => (
-
+                                filteredCustomers.map((customer) => (
                                     <tr key={customer.id}>
-
                                         <td>{customer.name}</td>
                                         <td>{customer.email}</td>
                                         <td>{customer.phone}</td>
                                         <td>{customer.city}</td>
-
                                         <td>
-
                                             <button
+                                                type="button"
                                                 className="view-button"
                                                 onClick={() => editCustomer(customer)}
                                             >
@@ -360,36 +311,24 @@ function Customers() {
                                             </button>
 
                                             <button
+                                                type="button"
                                                 className="delete-btn"
                                                 onClick={() => deleteCustomer(customer.id)}
                                             >
                                                 Delete
                                             </button>
-
                                         </td>
-
                                     </tr>
-
                                 ))
-
                             ) : (
-
                                 <tr>
-                                    <td colSpan="5">
-                                        No customers found.
-                                    </td>
+                                    <td colSpan="5">No customers found.</td>
                                 </tr>
-
                             )}
-
                         </tbody>
-
                     </table>
-
                 </div>
-
             </div>
-
         </div>
     )
 }

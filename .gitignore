@@ -45,3 +45,19 @@ Backend/media/
 # Unused product image copies
 /Backend/products/dp1.jpeg
 /Backend/products/react1.jpg
+
+# Django deployment and local files
+Backend/.env
+Backend/.env.*
+Backend/venv/
+Backend/media/
+Backend/staticfiles/
+
+# Local databases and backups
+*.sqlite3
+*.db
+
+# Local test images
+/Backend/react1_xK4TKsN.jpg
+
+/Backend/products/react1_*.jpg

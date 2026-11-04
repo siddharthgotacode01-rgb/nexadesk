@@ -2,9 +2,16 @@
 from django.db import models
 from customers.models import Customer
 from products.models import Product
+from django.conf import settings
 
 
 class Order(models.Model):
+
+    owner = models.ForeignKey(
+    settings.AUTH_USER_MODEL,
+    on_delete=models.CASCADE,
+    related_name='orders'
+)
 
     STATUS_CHOICES = [
         ('Pending', 'Pending'),
