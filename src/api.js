@@ -1,6 +1,5 @@
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api'
-
+const API_BASE_URL = 'https://nexadesk-backend-waci.onrender.com/api'
 const REFRESH_URL = `${API_BASE_URL}/token/refresh/`
 
 // Prevent multiple simultaneous requests from refreshing the token repeatedly.
