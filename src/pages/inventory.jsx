@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { apiRequest } from '../api'
 
 const API_URL = '/products/products/'
-const BACKEND_URL = 'http://127.0.0.1:8000'
+const BACKEND_URL = 'https://nexadesk-backend-waci.onrender.com'
 
 // Convert Django image paths into complete URLs.
 function getImageUrl(imagePath) {

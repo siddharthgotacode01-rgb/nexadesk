@@ -7,7 +7,7 @@ import Orders from './pages/orders'
 import Analytics from './pages/analytics'
 import './App.css'
 
-const API_ROOT = 'http://127.0.0.1:8000/api'
+const API_ROOT = 'https://nexadesk-backend-waci.onrender.com/api'
 const CUSTOMERS_API = '/customers/customers/'
 const PRODUCTS_API = '/products/products/'
 const ORDERS_API = '/orders/orders/'
