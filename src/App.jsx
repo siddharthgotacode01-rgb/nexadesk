@@ -229,6 +229,7 @@ function App() {
         () => Boolean(sessionStorage.getItem('access'))
     )
     const [activePage, setActivePage] = useState('Dashboard')
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
     const [customers, setCustomers] = useState([])
     const [products, setProducts] = useState([])
@@ -245,6 +246,7 @@ function App() {
         setDashboardError('')
         setDashboardLoading(true)
         setActivePage('Dashboard')
+        setMobileMenuOpen(false)
         setIsAuthenticated(false)
     }
 
@@ -344,7 +346,7 @@ function App() {
 
     return (
         <div className="app">
-            <aside className="sidebar">
+            <aside id="nexadesk-sidebar" className={`sidebar ${mobileMenuOpen ? 'sidebar-open' : ''}`}>
                 <h2 className="logo">Nexa<span>Desk.</span></h2>
                 <p className="menu-label">MENU</p>
 
@@ -354,7 +356,10 @@ function App() {
                             type="button"
                             key={page}
                             className={`nav-link ${activePage === page ? 'active' : ''}`}
-                            onClick={() => setActivePage(page)}
+                            onClick={() => {
+                                setActivePage(page)
+                                setMobileMenuOpen(false)
+                            }}
                         >
                             {page}
                         </button>
@@ -375,8 +380,29 @@ function App() {
                 </div>
             </aside>
 
+            {mobileMenuOpen && (
+                <button
+                    type="button"
+                    className="sidebar-overlay"
+                    onClick={() => setMobileMenuOpen(false)}
+                    aria-label="Close navigation menu"
+                />
+            )}
+
             <main className="main-content">
                 <header className="topbar">
+                    <button
+                        type="button"
+                        className="mobile-menu-button"
+                        onClick={() => setMobileMenuOpen((open) => !open)}
+                        aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                        aria-expanded={mobileMenuOpen}
+                        aria-controls="nexadesk-sidebar"
+                    >
+                        <span />
+                        <span />
+                        <span />
+                    </button>
                     <div>
                         <p className="welcome">Welcome back 👋</p>
                         <h1>{activePage}</h1>
